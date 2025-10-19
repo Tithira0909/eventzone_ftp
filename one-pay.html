@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OnePay Gateway Test</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        #iframe-container { margin-top: 20px; border: 1px solid #ccc; min-height: 400px; }
+        pre { background-color: #f4f4f4; padding: 15px; text-align: left; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <h1>OnePay Payment Gateway Test</h1>
+    <p>Click the button below to initiate the payment process.</p>
+
+    <div id="onepay-btn"></div>
+
+    <div id="iframe-container"></div>
+
+    <h3>Transaction Log:</h3>
+    <pre id="log-output">Waiting for transaction...</pre>
+
+    <script>
+        // All these values must be provided by OnePay for the JS integration
+        window.onePayData = {
+            appid: "BOSB1190A11BC273A5754", // Use the App ID for the JS integration [cite: 9]
+            hashToken: "8c613c62885dfa088613d1c5837dc56323535748f773a1d331060c2b98e925aa", // Use the Hash Token for the JS integration [cite: 10]
+            apptoken: "4fdcd6e37d82b79a817794dfb697b29eec71005911b5ac5ab2fb981b1203054a827f51b7166ab105.6HU11190A11C23B269F10", // Use the App Token for the JS integration [cite: 19-20]
+            amount: 100.00, // The amount to be paid [cite: 11]
+            orderReference: "TEST-" + Math.random().toString(36).substr(2, 9).toUpperCase(), // A unique reference for the order [cite: 12]
+            customerFirstName: "Test", // [cite: 13]
+            customerLastName: "User", // [cite: 14]
+            customerPhoneNumber: "+94771234567", // [cite: 15]
+            customerEmail: "test@gmail.com", // [cite: 16]
+            transactionRedirectUrl: "https://www.google.com", // A URL to redirect to after payment [cite: 17]
+            additionalData: "Simple HTML Test" // [cite: 18]
+        };
+
+        const logOutput = document.getElementById('log-output');
+
+        // Listen for the payment success event [cite: 22]
+        window.addEventListener("onePaySuccess", function (e) {
+            const successData = e.detail; // The JSON object from the event [cite: 24]
+            console.log("Payment SUCCESS", successData);
+            logOutput.textContent = 'STATUS: SUCCESS\n\n' + JSON.stringify(successData, null, 2);
+        });
+
+        // Listen for the payment fail event [cite: 27]
+        window.addEventListener("onePayFail", function (e) {
+            const failData = e.detail;
+            console.log("Payment FAIL", failData);
+            logOutput.textContent = 'STATUS: FAIL\n\n' + JSON.stringify(failData, null, 2);
+        });
+    </script>
+
+    <script src="https://storage.googleapis.com/onepayjs/onepayjs.js"></script>
+
+</body>
+</html>
