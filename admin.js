@@ -7,6 +7,7 @@ function isVip(tableId) {
   const letter = String(tableId || "").trim().charAt(0).toUpperCase();
   return ["A", "B", "C", "D", "E"].includes(letter);
 }
+
 function rand(n = 7) {
   return Math.random().toString(36).slice(2, 2 + n).toUpperCase();
 }
@@ -179,7 +180,7 @@ router.post("/ticket-book", async (req, res) => {
   }));
   const amount = items.reduce((s, it) => s + (it.price || 0), 0);
 
-  const src = String(source).toLowerCase() === "pickme" ? "pickme" : "ticketbook";
+  const src = String(source).toLowerCase() === "pickme" ? "pickme" : "ticket_book";
   const statusLabel = src;
   const descLabel = src === "pickme" ? "PickMe" : "Ticket Book";
   const payMethod = src === "pickme" ? "PICKME" : "TICKET_BOOK";
