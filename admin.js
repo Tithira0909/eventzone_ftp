@@ -178,7 +178,11 @@ router.post("/ticket-book", async (req, res) => {
     category,
     price: unit,
   }));
-  const amount = items.reduce((s, it) => s + (it.price || 0), 0);
+
+  // Calculate gross_amount and net_amount
+  const grossAmount = items.reduce((s, it) => s + (it.price || 0), 0);
+  const feeAmount = 0; // No additional fee
+  const netAmount = grossAmount - feeAmount; // Net amount after fees
 
   const src = String(source).toLowerCase() === "pickme" ? "pickme" : "ticket_book";
   const statusLabel = src;
@@ -205,7 +209,9 @@ router.post("/ticket-book", async (req, res) => {
 
     if (has("order_key"))  { cols.push("order_key"); vals.push(orderKey); qms.push("?"); }
     if (has("currency"))   { cols.push("currency"); vals.push("LKR"); qms.push("?"); }
-    if (has("amount"))     { cols.push("amount"); vals.push(amount); qms.push("?"); }
+    if (has("amount"))     { cols.push("amount"); vals.push(grossAmount); qms.push("?"); }
+    if (has("fee_amount")) { cols.push("fee_amount"); vals.push(feeAmount); qms.push("?"); }
+    if (has("net_amount")) { cols.push("net_amount"); vals.push(netAmount); qms.push("?"); } // Include net_amount
     if (has("pay_method")) { cols.push("pay_method"); vals.push(payMethod); qms.push("?"); }
     if (has("status"))     { cols.push("status"); vals.push(statusLabel); qms.push("?"); }
     if (has("description")){ cols.push("description"); vals.push(descLabel); qms.push("?"); }
@@ -228,7 +234,7 @@ router.post("/ticket-book", async (req, res) => {
 
         if (ih("item_type")) {
           cols.push("item_type");
-          qms.push("?"); vals.push(it.category === "vip" ? "vipTable" : "seat");
+          qms.push("?"); vals.push(it.category === "vip" ? "seat" : "seat");
         }
 
         if (ih("qty")) {
