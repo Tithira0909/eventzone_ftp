@@ -13,7 +13,7 @@ function rand(n = 7) {
 }
 
 /* =========================================================================
-   LIST ORDERS (Including 'ticket_book' and 'paid' status)
+   LIST ORDERS
    ========================================================================= */
 router.get("/orders", async (_req, res) => {
   const conn = await pool.getConnection();
@@ -46,7 +46,6 @@ router.get("/orders", async (_req, res) => {
       (has("customer_email") ? "o.customer_email" : "NULL") + " AS customer_email, " +
       (has("customer_phone") ? "o.customer_phone" : "NULL") + " AS customer_phone";
 
-    // Fetch orders with 'ticket_book' or 'paid' status
     const sqlOrders = `
       SELECT
         o.id,
@@ -62,13 +61,12 @@ router.get("/orders", async (_req, res) => {
         ${has("checked_in") ? "o.checked_in" : "NULL"} AS checked_in_raw,
         ${custSelect}
       FROM orders o
-      WHERE o.status IN ('ticket_book', 'paid')  -- Include orders with 'ticket_book' or 'paid' status
       ORDER BY o.id DESC
     `;
 
     const [orders] = await conn.query(sqlOrders);
 
-    // Fetch items for each order
+    // Items
     const [[hasItemsTable]] = await conn.query("SHOW TABLES LIKE 'order_items'");
     let items = [];
     if (hasItemsTable) {
@@ -146,6 +144,131 @@ router.get("/orders", async (_req, res) => {
     });
   } finally {
     conn.release();
+  }
+});
+
+/* =========================================================================
+   CREATE TICKET-BOOK / PICKME ORDERS
+   ========================================================================= */
+router.post("/ticket-book", async (req, res) => {
+  const { tableId, seats, orderId: customOrderId, source = "ticket_book" } = req.body || {};
+
+  const tId = String(tableId || "").trim();
+  const seatList = Array.isArray(seats)
+    ? seats.map(Number).filter((n) => n >= 1 && n <= 10)
+    : [];
+  if (!tId || seatList.length === 0) {
+    return res.status(400).json({ ok: false, error: "BAD_ITEM" });
+  }
+
+  // Check if any seat in the specified table is already booked
+  const seatAvailabilityCheck = `
+    SELECT seat_no FROM order_items WHERE table_id = ? AND seat_no IN (?)`;
+  const [bookedSeats] = await pool.query(seatAvailabilityCheck, [tId, seatList]);
+
+  if (bookedSeats.length > 0) {
+    return res.status(400).json({ ok: false, error: "SEAT_ALREADY_BOOKED" });
+  }
+
+  const category = isVip(tId) ? "vip" : "general";
+  const unit = category === "vip" ? 7500 : 5000;
+  const items = seatList.map((n) => ({
+    tableId: tId,
+    seatNo: n,
+    category,
+    price: unit,
+  }));
+
+  // Calculate gross_amount and net_amount
+  const grossAmount = items.reduce((s, it) => s + (it.price || 0), 0);
+  const feeAmount = 0; // No additional fee
+  const netAmount = grossAmount - feeAmount; // Net amount after fees
+
+  const src = String(source).toLowerCase() === "pickme" ? "pickme" : "ticket_book";
+  const statusLabel = src;
+  const descLabel = src === "pickme" ? "PickMe" : "Ticket Book";
+  const payMethod = src === "pickme" ? "PICKME" : "TICKET_BOOK";
+  const idPrefix = src === "pickme" ? "PME" : "TBK";
+
+  const outOrderId = customOrderId || `${idPrefix}-${tId}-${rand(4)}`;
+  const orderKey = `OK_${rand(12)}`;
+
+  const conn2 = await pool.getConnection();
+  try {
+    await conn2.beginTransaction();
+
+    const [orderCols] = await conn2.query("SHOW COLUMNS FROM orders");
+    const has = (n) => orderCols.some((c) => c.Field === n);
+
+    const cols = [];
+    const vals = [];
+    const qms = [];
+
+    if (has("order_ref")) { cols.push("order_ref"); vals.push(outOrderId); qms.push("?"); }
+    else if (has("order_id")) { cols.push("order_id"); vals.push(outOrderId); qms.push("?"); }
+
+    if (has("order_key"))  { cols.push("order_key"); vals.push(orderKey); qms.push("?"); }
+    if (has("currency"))   { cols.push("currency"); vals.push("LKR"); qms.push("?"); }
+    if (has("amount"))     { cols.push("amount"); vals.push(grossAmount); qms.push("?"); }
+    if (has("fee_amount")) { cols.push("fee_amount"); vals.push(feeAmount); qms.push("?"); }
+    if (has("net_amount")) { cols.push("net_amount"); vals.push(netAmount); qms.push("?"); } // Include net_amount
+    if (has("pay_method")) { cols.push("pay_method"); vals.push(payMethod); qms.push("?"); }
+    if (has("status"))     { cols.push("status"); vals.push(statusLabel); qms.push("?"); }
+    if (has("description")){ cols.push("description"); vals.push(descLabel); qms.push("?"); }
+
+    const [ins] = await conn2.query(
+      `INSERT INTO orders (${cols.join(",")}) VALUES (${qms.join(",")})`,
+      vals
+    );
+    const newOrderPk = ins.insertId;
+
+    const [[hasItemsTable]] = await conn2.query("SHOW TABLES LIKE 'order_items'");
+    if (hasItemsTable) {
+      const [itemCols] = await conn2.query("SHOW COLUMNS FROM order_items");
+      const ih = (n) => itemCols.some((c) => c.Field === n);
+
+      for (const it of items) {
+        const cols = ["order_id", "table_id", "seat_no"];
+        const qms = ["?", "?", "?"];
+        const vals = [newOrderPk, it.tableId, it.seatNo];
+
+        if (ih("item_type")) {
+          cols.push("item_type");
+          qms.push("?"); vals.push(it.category === "vip" ? "seat" : "seat");
+        }
+
+        if (ih("qty")) {
+          cols.push("qty");
+          qms.push("?"); vals.push(1);
+        }
+
+        if (ih("unit_price")) {
+          cols.push("unit_price");
+          qms.push("?"); vals.push(it.price || 0);
+        }
+
+        if (ih("amount")) {
+          cols.push("amount");
+          qms.push("?"); vals.push(it.price || 0);
+        }
+
+        const sql = `INSERT INTO order_items (${cols.join(",")}) VALUES (${qms.join(",")})`;
+        await conn2.query(sql, vals);
+      }
+    }
+
+    await conn2.commit();
+    res.json({ ok: true, order_ref: outOrderId, id: newOrderPk });
+  } catch (e) {
+    await conn2.rollback();
+    console.error("[ADMIN][ticket-book] Error:", e);
+    res.status(500).json({
+      ok: false,
+      error: "TICKET_BOOK_SAVE_FAILED",
+      sqlMessage: e?.sqlMessage,
+    });
+  } finally {
+    conn2.release();
   }
 });
 
