@@ -170,6 +170,11 @@ router.post("/check-in", async (req, res) => {
       return res.status(400).json({ ok: false, error: "INVALID_ORDER" });
     }
 
+    // Check if the order is already checked in
+    if (order.checked_in) {
+      return res.status(400).json({ ok: false, error: "ALREADY_CHECKED_IN" });
+    }
+
     // Update checked_in column to 1 and set checked_at to current timestamp
     const updateSql = `
       UPDATE orders
@@ -181,7 +186,7 @@ router.post("/check-in", async (req, res) => {
     // Commit the transaction
     await conn.commit();
 
-    res.json({ ok: true, message: "Order checked-in successfully" });
+    res.json({ ok: true, message: "Order checked-in successfully", orderRef });
   } catch (e) {
     // Rollback transaction on error
     await conn.rollback();
