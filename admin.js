@@ -272,4 +272,47 @@ router.post("/ticket-book", async (req, res) => {
   }
 });
 
+/* =========================================================================
+   MARK ORDER AS CHECKED-IN
+   ========================================================================= */
+router.post("/checkin", async (req, res) => {
+  const { order_ref } = req.body;
+
+  if (!order_ref) {
+    return res.status(400).json({ ok: false, error: "ORDER_REF_REQUIRED" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const [order] = await conn.query(
+      "SELECT * FROM orders WHERE order_ref = ? AND checked_in = 0", 
+      [order_ref]
+    );
+
+    if (order.length === 0) {
+      return res.status(404).json({ ok: false, error: "ORDER_NOT_FOUND_OR_ALREADY_CHECKED_IN" });
+    }
+
+    const [updateResult] = await conn.query(
+      "UPDATE orders SET checked_in = 1, checked_in_at = NOW() WHERE order_ref = ?",
+      [order_ref]
+    );
+
+    if (updateResult.affectedRows > 0) {
+      res.json({ ok: true, message: "Check-in successful" });
+    } else {
+      res.status(500).json({ ok: false, error: "UPDATE_FAILED" });
+    }
+  } catch (e) {
+    console.error("[ADMIN][checkin] Error:", e);
+    res.status(500).json({
+      ok: false,
+      error: "CHECKIN_FAILED",
+      sqlMessage: e?.sqlMessage,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
